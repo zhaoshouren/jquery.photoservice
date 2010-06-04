@@ -23,7 +23,7 @@
     browser: true,
     onevar: true,
     undef: true,
-    nomen: true,
+    nomen: true, // 1 expected dangling '_' in '_content' since this property is from JSON returned by Google
     eqeqeq: true,
     plusplus: true,
     bitwise: true,
@@ -388,44 +388,44 @@
 
                     if (cache[url] === undefined) {
                         jQuery.getJSON(url, function (dataJSON) {
-                                var service_name = configuration.service.name;
+                            var service_name = configuration.service.name;
 
-                                try {
-                                        if (dataJSON && (service_name === 'picasa' || (service_name === 'flickr' && dataJSON.stat === 'ok'))) {
-                                            if (configuration.method === 'flickr.photos.getInfo') {
-                                                jQuery.getJSON(getJsonURL(jQuery.extend(true, {}, configuration.service, {method: 'flickr.photos.getSizes'})),
-                                                function (sizes) {
-                                                    if (sizes.stat === 'ok') {
-                                                        cache[url] = [mapPhoto(jQuery.extend({index: 1, total: 1}, dataJSON.photo, sizes.sizes), service_name)];
-                                                        execute(cache[url], configuration, $that);
-                                                    }
-                                                    else {
+                            try {
+                                    if (dataJSON && (service_name === 'picasa' || (service_name === 'flickr' && dataJSON.stat === 'ok'))) {
+                                        if (configuration.method === 'flickr.photos.getInfo') {
+                                            jQuery.getJSON(getJsonURL(jQuery.extend(true, {}, configuration.service, {method: 'flickr.photos.getSizes'})),
+                                            function (sizes) {
+                                                if (sizes.stat === 'ok') {
+                                                    cache[url] = [mapPhoto(jQuery.extend({index: 1, total: 1}, dataJSON.photo, sizes.sizes), service_name)];
+                                                    execute(cache[url], configuration, $that);
+                                                }
+                                                else {
                                                     throw jQuery.extend(new Error(), {
                                                         name: name,
                                                         message: "failed to retrieve JSON for service=flicker & method=flickr.photos.getSizes because Flickr returned message: " + dataJSON.message
                                                     });
-                                                    }
-                                                });
-                                            }
-                                            else {
-                                                cache[url] = mapPhotos(dataJSON, service_name);
-                                                execute(cache[url], configuration, $that);
-                                            }
-                                        }
-                                        else {
-                                            throw jQuery.extend(new Error(), {
-                                                name: name,
-                                                message: "failed to retrieve JSON for service=" + service_name + " and method=" + configuration.service.method + (dataJSON ? " because Flickr returned message: " + dataJSON.message : ", no message received")
+                                                }
                                             });
                                         }
+                                        else {
+                                            cache[url] = mapPhotos(dataJSON, service_name);
+                                            execute(cache[url], configuration, $that);
+                                        }
                                     }
-                                catch (error) {
-                                    if (typeof(errorHandler) === 'function') {
-                                            errorHandler($that, error);
+                                    else {
+                                        throw jQuery.extend(new Error(), {
+                                            name: name,
+                                            message: "failed to retrieve JSON for service=" + service_name + " and method=" + configuration.service.method + (dataJSON ? " because Flickr returned message: " + dataJSON.message : ", no message received")
+                                        });
                                     }
                                 }
-                            });
-                        }
+                            catch (error) {
+                                if (typeof(errorHandler) === 'function') {
+                                    errorHandler($that, error);
+                                }
+                            }
+                        });
+                    }
                     else {
                         execute(cache[url], configuration, $that);
                     }
@@ -440,10 +440,10 @@
                 return (jQueryObject && jQueryObject.data) ? jQueryObject.data(key) : defaults;
             },
             defaults: function (new_defaults) {
-                return jQuery.extend(true, defaults, new_defaults);;
+                return jQuery.extend(true, defaults, new_defaults);
             },
             getPhotos: function (jQueryObject) {
-                return (!jQueryObject || !jQueryObject.data)? [] : cache[getJsonURL(jQueryObject.data(key).service)] || [];
+                return (!jQueryObject || !jQueryObject.data) ? [] : cache[getJsonURL(jQueryObject.data(key).service)] || [];
             },
             getPhoto: function (jQueryObject) {
                 var photos = this.getPhotos(jQueryObject),
