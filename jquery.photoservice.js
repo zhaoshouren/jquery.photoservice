@@ -1,5 +1,5 @@
 /*!
- * Photo Service jQuery Plugin v1.0.b
+ * Photo Service jQuery Plugin v1.0.RC1
  * http://zhaoshouren.com/
  *
  * Copyright 2010, Warren Chu
@@ -23,7 +23,7 @@
     browser: true,
     onevar: true,
     undef: true,
-    nomen: true, // 1 expected dangling '_' in '_content' since this property is from JSON returned by Google
+    nomen: true, // 1 expected dangling '_' in '_content' since this property that is sometimes returned in the JSON by flickr
     eqeqeq: true,
     plusplus: true,
     bitwise: true,
@@ -44,27 +44,61 @@
             link: false, // wrap image with link to image page at service (ie. flickr, Picasa)
             className: 'photo', //CSS class name used for <img> and <a>,<li> when generated
             random: false, // randomize sort order of retrieved images stored in indexes
-
             size: 'thumbnail', // original|thumbnail(square)|tiny(thumbnail at original aspect)|small|medium|large (avaiable sizes vary between services, selecting size that doesn't exist for particular image will default to original)
+            service: { // service (i.e. flickr & Picasa) specific settings
+                //*required
+                //name: name of service
+                //method: non-authenticated flickr API method|Picasa feed types: user, album, photo, community, featured (contacts doesn't return photos so has been excluded)
 
-            service: {
-                parameters: {
-                    //name: name of service
-                    //method: non-authenticated flickr API method|Picasa feed types: user, album, photo, community, featured (contacts doesn't return photos so has been excluded)
+                /* Picasa */
+                //*required depending on method
+                //userID:
+                //albumID:
+                //photoID:
+                    parameters: {
+                    /* flickr */
+                    //*required
+                    //api_key: apply for an flickr API key at http://www.flickr.com/services/api/keys/apply/
 
-                    // Picasa defaults
+                    //*required depending on method
+                    //photoset_id: http://www.flickr.com/photos/user_id/sets/photoset_id/
+
+                    //*optional
+                    //per_page: number of results to return by page, since this plugin doesn't support paging, use as max number of photos to retrieve
+                    //extras: additional properties to add to JSON
+
+                    // defaults
+                    extras: "owner_name,original_format,o_dims",
+
+                    /* Picasa */
+                    //*optional
+                    //access:
+                    //alt:
+                    //bbox:
+                    //fields:
+                    //imgmax:
+                    //kind:
+                    //l:
+                    //max-results:
+                    //prettyprint:
+                    //q:
+                    //start-index:
+                    //tag:
+                    //thumbsize:
+
+                    // defaults
                     imgmax: 1600, // Picasa currently limits image size for remote linking check with Picasa API for current limit
                     thumbsize: '64c' // add a default "square" thumbmail for Picasa
                 }
             },
 
-            // settings that are not meant to be overridden, used for maintaining state
-            currentIndex: undefined,
-            indexes: [],
-            randomized: false
+            // settings that are not meant to be overridden, used for maintaining state by plugin
+            currentIndex: undefined, // current index in the photos[] collection stored in cache[]
+            indexes: [], // sorted indexes for photos[]; either random or ordered
+            randomized: false // whether indexes[] has been randomized or not
         },
-        key = 'ps:config', // key for use with jQuery.data(key) to store configuration by jQuery object to which plugin has been called upon
-        name = 'jquery.photoservice',
+        key = 'photoService:configuration', // key for use with jQuery.data(key) to store configuration by jQuery object to which plugin has been called upon
+        name = 'jQuery.photoService', // plugin name used for custom Error() thrown due error able to be caught in ajax calls
         cache = [], // store photo collections by URL so they can be shared by all calls of plugin on page
         getJsonURL; // function that will be declared with a closure, hence allocating the name in this var statement
 
@@ -85,13 +119,95 @@
         photo.index = "";
         photo.id = "";
 
+        photo.attribution = "";
+
         return photo;
     }
-
-    Photo.prototype.formatTitle = function () { //format title, if title is blank or undefined display [untitled], include author if available, and finally include site photo originates from
+    Photo.prototype.updateAttribution = function () { //format title, if title is blank or undefined display [untitled], include author if available, and finally include site photo originates from
         var photo = this;
 
-        return (photo.title !== "[untitled]" ? (photo.title.match(/"/g) ? photo.title : "\"" + photo.title + "\"") : photo.title) + (photo.author.length ? " by " + photo.author : "") + " (" + photo.site + ")";
+        photo.attribution = (photo.title !== "[untitled]" ? (photo.title.match(/"/g) ? photo.title : "\"" + photo.title + "\"") : photo.title) + (photo.author.length ? " by " + photo.author : "") + " (" + photo.site + ")";
+    };
+
+    function FlickrPhoto() {
+        this.site = "www.flickr.com";
+    }
+    FlickrPhoto.prototype = new Photo();
+    FlickrPhoto.prototype.map = function (json) {
+        var photo = this,
+            height = json.height_o || json.o_height,
+            width = json.width_o || json.o_width,
+            originalsecret = json.originalsecret,
+            secret = json.secret,
+            title = json.title,
+            owner = json.owner,
+            id = json.id,
+            base,
+            original,
+            size,
+            sizeMap = {
+                Square: 'thumbnail',
+                Thumbnail: 'tiny',
+                Small: 'small',
+                Medium: 'medium',
+                Large: 'large',
+                Original: 'original'
+            };
+
+            photo.index = json.index;
+            photo.total = json.total;
+
+            if (json.size === undefined) {
+                base = "http://farm" + json.farm + ".static.flickr.com/" + json.server + "/" + id + "_";
+
+                original = originalsecret ? (base + originalsecret + "_o." + json.originalformat + "") : json.o_url;
+
+                base += secret;
+
+                photo.large = (height <= 1200 && width <= 1200) ? original : (base + ((height > 500 || width > 500) ? "_b" : "") + ".jpg");
+                photo.original = original || photo.large;
+                photo.thumbnail = base + "_s.jpg";
+                photo.tiny = base + "_t.jpg";
+                photo.small = base + "_m.jpg";
+                photo.medium = base + ".jpg";
+            }
+            else {
+                for (size in json.size) {
+                    photo[sizeMap[size.label]] = size.source;
+                }
+
+                if (!photo.original.length) {
+                    photo.original = photo.large.length ? photo.large : photo.medium;
+                }
+            }
+            photo.title = (typeof(title) === 'string' ? title : title._content) || "[untitled]";
+            photo.link = "http://www.flickr.com/photos/" + (typeof(owner) === 'string' ? owner : owner.nsid) + "/" + id + "/";
+            photo.author = json.ownername || owner.username;
+            photo.id = id;
+
+            photo.updateAttribution();
+
+            return photo;
+    }
+
+    function PicasaPhoto() {
+        this.site = "picasaweb.google.com";
+    }
+    PicasaPhoto.prototype = new Photo();
+    PicasaPhoto.prototype.map = function (json) {
+        var photo = this;
+
+        photo.index = json.index;
+        photo.total = json.total;
+        photo.title = json.title.$t;
+        photo.link = json.link[2].href;
+        photo.original = json.content.src;
+        photo.thumbnail = json.media$group.media$thumbnail[0].url;
+        photo.author = json.feedAuthor || json.author[0].name.$t;
+
+        photo.updateAttribution();
+
+        return photo;
     };
 
     function filterParameters(parameters, filters) {
@@ -132,15 +248,17 @@
             album = "/albumid/";
 
         return function (configuration_service) {
-            var service = configuration_service,
-                method = service.method,
-                parameters = service.parameters,
-                userID = service.userID,
-                albumID = service.albumID;
+            var method = configuration_service.method,
+                parameters = configuration_service.parameters,
+                userID = configuration_service.userID,
+                albumID = configuration_service.albumID;
 
-            switch (service.name) {
+            switch (configuration_service.name) {
             case 'flickr':
-                url = "http://api.flickr.com/services/rest/?format=json&jsoncallback=?&" + jQuery.param(filterParameters(jQuery.extend({}, parameters, {method: method}), (filters[method] || []).concat(['method', 'api_key'])));
+                if (!filters[method]) {
+                    throwError("Could not find corresponding filter for method = '" + method + "'; if method is correct than it is not yet supported.");
+                }
+                url = "http://api.flickr.com/services/rest/?format=json&jsoncallback=?&" + jQuery.param(filterParameters(jQuery.extend({}, parameters, {method: method}), filters[method].concat(['method', 'api_key'])));
                 break;
             case 'picasa':
                 url = "http://picasaweb.google.com/data/feed/api/";
@@ -153,7 +271,7 @@
                     url += user + userID + album + albumID;
                     break;
                 case 'photo':
-                    url += user + userID + album + albumID + "/photoid/" + service.photoID;
+                    url += user + userID + album + albumID + "/photoid/" + configuration_service.photoID;
                     break;
                 case 'community':
                     url += "all";
@@ -172,17 +290,14 @@
         };
     }());
 
-    function appendPhotos(photos, configuration, $this) {
+    function appendPhotos($this, photos, configuration) {
         var currentIndex = configuration.currentIndex,
             indexes = configuration.indexes,
-            increment = configuration.increment,
             index,
             counter,
+            limit,
             total = photos.length,
-            limit = configuration.limit || total,
             className = configuration.className,
-            size = configuration.size,
-            link = configuration.link,
             start = configuration.start,
             random = configuration.random,
             randomized = configuration.randomized,
@@ -198,7 +313,7 @@
             indexes = [];
         }
         else {
-            currentIndex += increment;
+            currentIndex += configuration.increment;
         }
 
         if (!indexes.length || random !== randomized) {
@@ -224,16 +339,16 @@
             $this.empty();
         }
 
-        for (index = currentIndex, counter = 0; index < total && counter < limit; index += 1, counter += 1) {
+        for (index = currentIndex, counter = 0, limit = configuration.limit || total; index < total && counter < limit; index += 1, counter += 1) {
             photo = photos[indexes[index]];
 
             $html = jQuery('<img>', {
                 'class': className,
-                src: photo[size] || photo.original,
-                alt: photo.formatTitle()
+                src: photo[configuration.size] || photo.original,
+                alt: photo.attribution
             });
 
-            if (link) {
+            if (configuration.link) {
                 $html = jQuery('<a>', {
                     href: photo.link,
                     'class': className
@@ -254,92 +369,16 @@
         $this.data(key, configuration);
     }
 
-    function execute(photos, configuration, $this) {
+    function process($this, photos, configuration) {
         var successHandler = configuration.success;
 
         if (configuration.limit !== 0) {
-            appendPhotos(photos, configuration, $this);
+            appendPhotos($this, photos, configuration);
         }
 
         if (typeof(successHandler) === 'function') {
             successHandler.call($this);
         }
-    }
-
-    function mapPhoto(dataJSON, configuration_service) {
-        var photo = new Photo(),
-            height = dataJSON.height_o || dataJSON.o_height,
-            width = dataJSON.width_o || dataJSON.o_width,
-            originalsecret = dataJSON.originalsecret,
-            secret = dataJSON.secret,
-            title = dataJSON.title,
-            base,
-            original,
-            large;
-
-        photo.index = dataJSON.index;
-        photo.total = dataJSON.total;
-
-        if (configuration_service === 'picasa') {
-            photo.title = dataJSON.title.$t;
-            photo.link = dataJSON.link[2].href;
-            photo.original = dataJSON.content.src;
-            photo.thumbnail = dataJSON.media$group.media$thumbnail[0].url;
-            photo.author = dataJSON.feedAuthor || dataJSON.author[0].name.$t;
-            photo.site = "picasaweb.google.com";
-        }
-        else if (configuration_service === 'flickr') {
-            if (dataJSON.size === undefined) {
-                base = "http://farm" + dataJSON.farm + ".static.flickr.com/" + dataJSON.server + "/" + dataJSON.id + "_";
-                original = (originalsecret !== undefined) ? base + originalsecret + "_o." + dataJSON.originalformat + "" : dataJSON.o_url;
-                large = (height <= 1200 && width <= 1200) ? original : (base + secret + (height > 500 || width > 500 ? "_b" : "") + ".jpg");
-
-                base += secret;
-
-                photo.original = original || large;
-                photo.thumbnail = base + "_s.jpg";
-                photo.tiny = base + "_t.jpg";
-                photo.small = base + "_m.jpg";
-                photo.medium = base + ".jpg";
-                photo.large = large;
-            }
-            else {
-                jQuery.each(dataJSON.size, function (index, size) {
-                    var source = size.source;
-                    switch (size.label) {
-                    case 'Square':
-                        photo.thumbnail = source;
-                        break;
-                    case 'Thumbnail':
-                        photo.tiny = source;
-                        break;
-                    case 'Small':
-                        photo.small = source;
-                        break;
-                    case 'Medium':
-                        photo.medium = source;
-                        break;
-                    case 'Large':
-                        photo.large = source;
-                        break;
-                    case 'Original':
-                        photo.original = source;
-                        break;
-                    default:
-                    }
-                });
-
-                if (!photo.original.length) {
-                    photo.original = photo.large.length ? photo.large : photo.medium;
-                }
-            }
-            photo.title = (typeof(title) === 'string' ? title : title._content) || "[untitled]";
-            photo.link = "http://www.flickr.com/photos/" + (typeof(dataJSON.owner) === 'string' ? dataJSON.owner : dataJSON.owner.nsid) + "/" + dataJSON.id + "/";
-            photo.author = dataJSON.ownername || dataJSON.owner.username;
-            photo.site = "www.flickr.com";
-            photo.id = dataJSON.id;
-        }
-        return photo;
     }
 
     function mapPhotos(dataJSON, configuration_service) {
@@ -351,20 +390,20 @@
             author = dataJSON.feed.gphoto$user !== undefined ? dataJSON.feed.author[0].name.$t : undefined;
             total = dataJSON.feed.entry.length;
             jQuery.each(dataJSON.feed.entry, function (index, photo) {
-                photos[index] = mapPhoto(jQuery.extend({index: index + 1, total: total, feedAuthor: author}, photo), configuration_service);
+                photos[index] = new PicasaPhoto().map(jQuery.extend({index: index + 1, total: total, feedAuthor: author}, photo));
             });
         }
         else if (configuration_service === 'flickr') {
             if (dataJSON.photos !== undefined) {
                 total = dataJSON.photos.photo.length;
                 jQuery.each(dataJSON.photos.photo, function (index, photo) {
-                    photos[index] = mapPhoto(jQuery.extend({index: index + 1, total: total}, photo), configuration_service);
+                    photos[index] = new FlickrPhoto().map(jQuery.extend({index: index + 1, total: total}, photo));
                 });
             }
             else if (dataJSON.photoset !== undefined) {
                 total = dataJSON.photoset.photo.length;
                 jQuery.each(dataJSON.photoset.photo, function (index, photo) {
-                    photos[index] = mapPhoto(jQuery.extend({index: index + 1, total: total, owner: dataJSON.photoset.owner}, photo), configuration_service);
+                    photos[index] = new FlickrPhoto().map(jQuery.extend({index: index + 1, total: total, owner: dataJSON.photoset.owner}, photo));
                 });
             }
         }
@@ -372,71 +411,67 @@
         return photos;
     }
 
-    jQuery.fn.extend({
-        photoService: function (new_configuration) {
-            var $this = this;
+    function throwError(message) {
+        throw jQuery.extend(new Error(), {
+            name: name,
+            message: message
+        });
+    }
 
-            return this.each(function () {
-                var $that = $this,
-                    configuration = jQuery.extend(true, {}, defaults, $that.data(key), new_configuration),
-                    url = getJsonURL(configuration.service);
+    jQuery.fn.photoService = function (new_configuration) {
+        var $this = this,
+            configuration = jQuery.extend(true, {}, defaults, $this.data(key), new_configuration),
+            errorHandler = configuration.error,
+            url;
 
-                $that.data(key, configuration);
+        $this.data(key, configuration);
 
-                return function () {
-                    var errorHandler = configuration.error;
+        try {
+            url = getJsonURL(configuration.service);
 
-                    if (cache[url] === undefined) {
-                        jQuery.getJSON(url, function (dataJSON) {
-                            var service_name = configuration.service.name;
+            return $this.each(function () {
+                if (cache[url] === undefined) {
+                    jQuery.getJSON(url, function (dataJSON) {
+                        var service_name = configuration.service.name;
 
-                            try {
-                                    if (dataJSON && (service_name === 'picasa' || (service_name === 'flickr' && dataJSON.stat === 'ok'))) {
-                                        if (configuration.method === 'flickr.photos.getInfo') {
-                                            jQuery.getJSON(getJsonURL(jQuery.extend(true, {}, configuration.service, {method: 'flickr.photos.getSizes'})),
-                                            function (sizes) {
-                                                if (sizes.stat === 'ok') {
-                                                    cache[url] = [mapPhoto(jQuery.extend({index: 1, total: 1}, dataJSON.photo, sizes.sizes), service_name)];
-                                                    execute(cache[url], configuration, $that);
-                                                }
-                                                else {
-                                                    throw jQuery.extend(new Error(), {
-                                                        name: name,
-                                                        message: "failed to retrieve JSON for service=flicker & method=flickr.photos.getSizes because Flickr returned message: " + dataJSON.message
-                                                    });
-                                                }
-                                            });
-                                        }
-                                        else {
-                                            cache[url] = mapPhotos(dataJSON, service_name);
-                                            execute(cache[url], configuration, $that);
-                                        }
+                        if (dataJSON && (service_name === 'picasa' || (service_name === 'flickr' && dataJSON.stat === 'ok'))) {
+                            if (configuration.method === 'flickr.photos.getInfo') {
+                                jQuery.getJSON(getJsonURL(jQuery.extend(true, {}, configuration.service, {method: 'flickr.photos.getSizes'})),
+                                function (sizes) {
+                                    if (sizes.stat === 'ok') {
+                                        cache[url] = [mapPhoto(jQuery.extend({index: 1, total: 1}, dataJSON.photo, sizes.sizes), service_name)];
+                                        process($this, cache[url], configuration);
                                     }
                                     else {
-                                        throw jQuery.extend(new Error(), {
-                                            name: name,
-                                            message: "failed to retrieve JSON for service=" + service_name + " and method=" + configuration.service.method + (dataJSON ? " because Flickr returned message: " + dataJSON.message : ", no message received")
-                                        });
+                                        throwError("failed to retrieve JSON for service = 'flicker' and method = 'flickr.photos.getSizes' because Flickr returned message: " + dataJSON.message);
                                     }
-                                }
-                            catch (error) {
-                                if (typeof(errorHandler) === 'function') {
-                                    errorHandler($that, error);
-                                }
+                                });
                             }
-                        });
-                    }
-                    else {
-                        execute(cache[url], configuration, $that);
-                    }
-                };
-            }());
+                            else {
+                                cache[url] = mapPhotos(dataJSON, service_name);
+                                process($this, cache[url], configuration);
+                            }
+                        }
+                        else {
+                            throwError("failed to retrieve JSON for service = '" + service_name + "' and method = '" + configuration.service.method + "'" + (dataJSON ? " because Flickr returned message: " + dataJSON.message : ", no message received"));
+                        }
+                    });
+                }
+                else {
+                    process($this, cache[url], configuration);
+                }
+            });
         }
-    });
+        catch (error) {
+            if (typeof(errorHandler) === 'function') {
+                errorHandler.call($this, error)
+            }
+        }
+    };
 
     jQuery.extend({
         photoService: {
-            configuration: function (jQueryObject) {
+            getConfiguration: function (jQueryObject) {
                 return (jQueryObject && jQueryObject.data) ? jQueryObject.data(key) : defaults;
             },
             defaults: function (new_defaults) {
@@ -447,7 +482,7 @@
             },
             getPhoto: function (jQueryObject) {
                 var photos = this.getPhotos(jQueryObject),
-                    configuration = this.configuration(jQueryObject);
+                    configuration = this.getConfiguration(jQueryObject);
 
                 return photos.length ? photos[configuration.indexes[configuration.currentIndex] || 0] : new Photo();
             }
