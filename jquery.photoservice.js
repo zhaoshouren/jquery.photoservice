@@ -633,7 +633,7 @@
                     var picasa = this,
                         userID = this.userID,
                         albumID = this.albumID,
-                        url = "http://picasaweb.google.com/data/feed/api/";
+                        url = "https://photos.googleapis.com/data/feed/api/";
 
                     switch (picasa.method) {
                     case 'user':
